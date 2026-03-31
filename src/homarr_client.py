@@ -42,6 +42,7 @@ class HomarrClient:
         """Parse tRPC response, unwrapping the nested structure.
 
         tRPC responses are nested as: {"result": {"data": {"json": <actual_data>}}}
+        tRPC errors are nested as: {"error": {"json": {"message": "...", "data": {...}}}}
         """
         if response.status_code == 401:
             raise HomarrAPIError("Unauthorized: invalid or missing API key", 401)
@@ -50,8 +51,16 @@ class HomarrClient:
         if response.status_code == 404:
             raise HomarrAPIError("Not found", 404)
 
-        response.raise_for_status()
         data = response.json()
+
+        # Handle tRPC error responses (400, 500, etc.)
+        if "error" in data:
+            error_json = data["error"].get("json", {})
+            message = error_json.get("message", "Unknown tRPC error")
+            code = error_json.get("data", {}).get("code", "UNKNOWN")
+            raise HomarrAPIError(f"{code}: {message}", response.status_code)
+
+        response.raise_for_status()
 
         # Unwrap tRPC response: result.data.json -> result.data -> raw
         result = data.get("result", data)
@@ -90,23 +99,28 @@ class HomarrClient:
         """Get a board by name (includes sections, items, layouts)."""
         return await self._query("board.getBoardByName", {"name": name})
 
-    async def create_board(self, name: str) -> dict:
-        """Create a new board."""
-        return await self._mutate("board.createBoard", {"name": name})
+    async def create_board(
+        self, name: str, column_count: int = 10, is_public: bool = False
+    ) -> dict:
+        """Create a new board. Returns {"boardId": "..."}."""
+        return await self._mutate(
+            "board.createBoard",
+            {"name": name, "columnCount": column_count, "isPublic": is_public},
+        )
 
-    async def duplicate_board(self, board_id: str) -> dict:
-        """Duplicate an existing board."""
-        return await self._mutate("board.duplicateBoard", {"id": board_id})
+    async def duplicate_board(self, board_id: str, new_name: str) -> dict:
+        """Duplicate an existing board with a new name."""
+        return await self._mutate("board.duplicateBoard", {"id": board_id, "name": new_name})
 
-    async def rename_board(self, board_id: str, new_name: str) -> dict:
+    async def rename_board(self, board_id: str, new_name: str) -> Any:
         """Rename a board."""
-        return await self._mutate("board.renameBoard", {"id": board_id, "newName": new_name})
+        return await self._mutate("board.renameBoard", {"id": board_id, "name": new_name})
 
     async def delete_board(self, board_id: str) -> Any:
         """Delete a board."""
         return await self._mutate("board.deleteBoard", {"id": board_id})
 
-    async def change_board_visibility(self, board_id: str, visibility: str) -> dict:
+    async def change_board_visibility(self, board_id: str, visibility: str) -> Any:
         """Change board visibility ('public' or 'private')."""
         return await self._mutate(
             "board.changeBoardVisibility",
@@ -131,24 +145,47 @@ class HomarrClient:
         self,
         name: str,
         href: str,
-        description: Optional[str] = None,
-        icon_url: Optional[str] = None,
+        description: str = "",
+        icon_url: str = "https://cdn.jsdelivr.net/npm/@homarr/icons@latest/svgs/default.svg",
         ping_url: Optional[str] = None,
     ) -> dict:
-        """Create a new app."""
-        data: dict[str, Any] = {"name": name, "href": href}
-        if description is not None:
-            data["description"] = description
-        if icon_url is not None:
-            data["iconUrl"] = icon_url
-        if ping_url is not None:
-            data["pingUrl"] = ping_url
-        return await self._mutate("app.create", data)
+        """Create a new app.
 
-    async def update_app(self, app_id: str, **kwargs: Any) -> dict:
-        """Update an app. Pass only the fields to change."""
-        data = {"id": app_id, **kwargs}
-        return await self._mutate("app.update", data)
+        API requires: name (str), href (str), description (str),
+        iconUrl (non-empty str), pingUrl ("" for null or a URL string).
+        """
+        return await self._mutate(
+            "app.create",
+            {
+                "name": name,
+                "href": href,
+                "description": description,
+                "iconUrl": icon_url,
+                "pingUrl": ping_url or "",
+            },
+        )
+
+    async def update_app(
+        self,
+        app_id: str,
+        name: str,
+        href: str,
+        description: str = "",
+        icon_url: str = "https://cdn.jsdelivr.net/npm/@homarr/icons@latest/svgs/default.svg",
+        ping_url: Optional[str] = None,
+    ) -> dict:
+        """Update an app. All fields are required by the API."""
+        return await self._mutate(
+            "app.update",
+            {
+                "id": app_id,
+                "name": name,
+                "href": href,
+                "description": description,
+                "iconUrl": icon_url,
+                "pingUrl": ping_url or "",
+            },
+        )
 
     async def delete_app(self, app_id: str) -> Any:
         """Delete an app."""

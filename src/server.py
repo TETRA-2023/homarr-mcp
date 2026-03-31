@@ -189,25 +189,30 @@ async def get_board(name: str, verbosity: str = "standard") -> dict:
 
 @mcp.tool(
     "create_board",
-    description="Create a new Homarr board with the given name.",
+    description=(
+        "Create a new Homarr board. Optional: column_count (default 10), is_public (default false)."
+    ),
 )
-async def create_board(name: str) -> dict:
+async def create_board(name: str, column_count: int = 10, is_public: bool = False) -> dict:
     """Create a new board."""
     client = _get_client()
-    result = await client.create_board(name)
+    result = await client.create_board(name, column_count, is_public)
     logger.info(f"Created board '{name}'")
     return result
 
 
 @mcp.tool(
     "duplicate_board",
-    description="Duplicate an existing board by its ID. Use list_boards to find the board ID.",
+    description=(
+        "Duplicate an existing board by its ID with a new name. "
+        "Use list_boards to find the board ID."
+    ),
 )
-async def duplicate_board(board_id: str) -> dict:
+async def duplicate_board(board_id: str, new_name: str) -> dict:
     """Duplicate a board."""
     client = _get_client()
-    result = await client.duplicate_board(board_id)
-    logger.info(f"Duplicated board {board_id}")
+    result = await client.duplicate_board(board_id, new_name)
+    logger.info(f"Duplicated board {board_id} as '{new_name}'")
     return result
 
 
@@ -288,14 +293,14 @@ async def get_app(app_id: str, verbosity: str = "standard") -> dict:
     "create_app",
     description=(
         "Create a new app/bookmark in Homarr. "
-        "Requires name and href (URL). Optional: description, icon_url, ping_url."
+        "Requires name and href (URL). Optional: description, icon_url (must be non-empty URL), ping_url."
     ),
 )
 async def create_app(
     name: str,
     href: str,
-    description: Optional[str] = None,
-    icon_url: Optional[str] = None,
+    description: str = "",
+    icon_url: str = "https://cdn.jsdelivr.net/npm/@homarr/icons@latest/svgs/default.svg",
     ping_url: Optional[str] = None,
 ) -> dict:
     """Create a new app."""
@@ -315,7 +320,8 @@ async def create_app(
     "update_app",
     description=(
         "Update an existing app. Pass the app_id and any fields to change: "
-        "name, href, description, iconUrl, pingUrl."
+        "name, href, description, icon_url, ping_url. "
+        "Unchanged fields are preserved from the current app state."
     ),
 )
 async def update_app(
@@ -326,25 +332,32 @@ async def update_app(
     icon_url: Optional[str] = None,
     ping_url: Optional[str] = None,
 ) -> dict:
-    """Update an app."""
-    kwargs: dict[str, Any] = {}
-    if name is not None:
-        kwargs["name"] = name
-    if href is not None:
-        kwargs["href"] = href
-    if description is not None:
-        kwargs["description"] = description
-    if icon_url is not None:
-        kwargs["iconUrl"] = icon_url
-    if ping_url is not None:
-        kwargs["pingUrl"] = ping_url
-
-    if not kwargs:
-        return {"error": "No fields to update"}
-
+    """Update an app. Fetches current state and merges changes (API requires all fields)."""
     client = _get_client()
-    result = await client.update_app(app_id, **kwargs)
-    logger.info(f"Updated app {app_id}: {list(kwargs.keys())}")
+
+    # Fetch current app state to fill in unchanged fields
+    current = await client.get_app(app_id)
+
+    result = await client.update_app(
+        app_id=app_id,
+        name=name if name is not None else current.get("name", ""),
+        href=href if href is not None else current.get("href", ""),
+        description=description if description is not None else (current.get("description") or ""),
+        icon_url=icon_url if icon_url is not None else (current.get("iconUrl") or ""),
+        ping_url=ping_url if ping_url is not None else current.get("pingUrl"),
+    )
+    changed = [
+        k
+        for k, v in {
+            "name": name,
+            "href": href,
+            "description": description,
+            "icon_url": icon_url,
+            "ping_url": ping_url,
+        }.items()
+        if v is not None
+    ]
+    logger.info(f"Updated app {app_id}: {changed}")
     return result
 
 

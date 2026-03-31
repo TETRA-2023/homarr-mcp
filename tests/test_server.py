@@ -60,16 +60,22 @@ class TestBoardTools:
 
     @pytest.mark.asyncio
     async def test_create_board(self, mock_client):
-        mock_client.create_board.return_value = {"id": "new123", "name": "Test"}
+        mock_client.create_board.return_value = {"boardId": "new123"}
         result = await src.server.create_board("Test")
-        assert result["name"] == "Test"
-        mock_client.create_board.assert_called_once_with("Test")
+        assert result["boardId"] == "new123"
+        mock_client.create_board.assert_called_once_with("Test", 10, False)
+
+    @pytest.mark.asyncio
+    async def test_create_board_custom(self, mock_client):
+        mock_client.create_board.return_value = {"boardId": "new456"}
+        await src.server.create_board("Public", column_count=12, is_public=True)
+        mock_client.create_board.assert_called_once_with("Public", 12, True)
 
     @pytest.mark.asyncio
     async def test_duplicate_board(self, mock_client):
-        mock_client.duplicate_board.return_value = {"id": "dup123", "name": "TETRA (copy)"}
-        await src.server.duplicate_board("abc123")
-        mock_client.duplicate_board.assert_called_once_with("abc123")
+        mock_client.duplicate_board.return_value = {"boardId": "dup123"}
+        await src.server.duplicate_board("abc123", "TETRA Copy")
+        mock_client.duplicate_board.assert_called_once_with("abc123", "TETRA Copy")
 
     @pytest.mark.asyncio
     async def test_rename_board(self, mock_client):
@@ -147,21 +153,31 @@ class TestAppTools:
             name="New App",
             href="https://new.com",
             description="Desc",
-            icon_url=None,
+            icon_url="https://cdn.jsdelivr.net/npm/@homarr/icons@latest/svgs/default.svg",
             ping_url=None,
         )
 
     @pytest.mark.asyncio
     async def test_update_app(self, mock_client):
+        mock_client.get_app.return_value = {
+            "id": "app1",
+            "name": "Old",
+            "href": "https://old.com",
+            "description": "Old desc",
+            "iconUrl": "https://icon.example.com/x.svg",
+            "pingUrl": None,
+        }
         mock_client.update_app.return_value = {"id": "app1", "name": "Updated"}
         await src.server.update_app("app1", name="Updated")
-        mock_client.update_app.assert_called_once_with("app1", name="Updated")
-
-    @pytest.mark.asyncio
-    async def test_update_app_no_fields(self, mock_client):
-        result = await src.server.update_app("app1")
-        assert "error" in result
-        mock_client.update_app.assert_not_called()
+        mock_client.get_app.assert_called_once_with("app1")
+        mock_client.update_app.assert_called_once_with(
+            app_id="app1",
+            name="Updated",
+            href="https://old.com",
+            description="Old desc",
+            icon_url="https://icon.example.com/x.svg",
+            ping_url=None,
+        )
 
     @pytest.mark.asyncio
     async def test_delete_app(self, mock_client):
