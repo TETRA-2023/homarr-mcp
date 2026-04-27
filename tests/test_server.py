@@ -74,8 +74,8 @@ class TestBoardTools:
     @pytest.mark.asyncio
     async def test_duplicate_board(self, mock_client):
         mock_client.duplicate_board.return_value = {"boardId": "dup123"}
-        await src.server.duplicate_board("abc123", "TETRA Copy")
-        mock_client.duplicate_board.assert_called_once_with("abc123", "TETRA Copy")
+        await src.server.duplicate_board("abc123", "Copied Board")
+        mock_client.duplicate_board.assert_called_once_with("abc123", "Copied Board")
 
     @pytest.mark.asyncio
     async def test_rename_board(self, mock_client):
@@ -242,29 +242,29 @@ class TestUserTools:
         mock_client.list_users.return_value = [
             {
                 "id": "u1",
-                "name": "Romain VALTIER",
-                "email": "rva@tetra-ai.com",
+                "name": "Test User",
+                "email": "test@example.com",
                 "emailVerified": None,
                 "image": None,
             },
         ]
         result = await src.server.list_users()
         assert len(result) == 1
-        assert result[0]["name"] == "Romain VALTIER"
+        assert result[0]["name"] == "Test User"
 
     @pytest.mark.asyncio
     async def test_search_users(self, mock_client):
         mock_client.search_users.return_value = [
             {
                 "id": "u1",
-                "name": "Romain VALTIER",
-                "email": "rva@tetra-ai.com",
+                "name": "Test User",
+                "email": "test@example.com",
                 "emailVerified": None,
                 "image": None,
             },
         ]
-        await src.server.search_users("Romain")
-        mock_client.search_users.assert_called_once_with("Romain", 10)
+        await src.server.search_users("Test")
+        mock_client.search_users.assert_called_once_with("Test", 10)
 
 
 # ── Response filtering tests ──
