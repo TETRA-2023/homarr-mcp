@@ -485,8 +485,6 @@ def _run(transport: str) -> None:
         mcp.run(transport="stdio")
         return
 
-    import logging as _logging
-
     import uvicorn
 
     from src.auth import BearerAuthMiddleware
@@ -494,7 +492,10 @@ def _run(transport: str) -> None:
 
     # Mute the upstream SDK's ClosedResourceError noise on session teardown.
     # See StandaloneSseWriterRaceFilter for why this is benign and narrow.
-    _logging.getLogger("mcp.server.streamable_http").addFilter(StandaloneSseWriterRaceFilter())
+    # Idempotent: re-entry into _run (eg. tests) doesn't stack duplicate filters.
+    sdk_logger = logging.getLogger("mcp.server.streamable_http")
+    if not any(isinstance(f, StandaloneSseWriterRaceFilter) for f in sdk_logger.filters):
+        sdk_logger.addFilter(StandaloneSseWriterRaceFilter())
 
     app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
 

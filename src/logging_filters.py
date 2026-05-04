@@ -39,7 +39,7 @@ class StandaloneSseWriterRaceFilter(logging.Filter):
 
     _MESSAGE = "Error in standalone SSE writer"
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+    def filter(self, record: logging.LogRecord) -> bool:
         if record.getMessage() != self._MESSAGE:
             return True
         if not record.exc_info:
