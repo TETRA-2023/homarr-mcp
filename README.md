@@ -38,7 +38,10 @@ Create an API key in Homarr: **Management > Tools > API Keys**
 |----------|-------------|---------|
 | `HOMARR_URL` | Homarr instance URL | `http://localhost:7575` |
 | `HOMARR_API_KEY` | API key (`<id>.<token>` format) | *required* |
-| `HOMARR_TRANSPORT` | Transport mode | `stdio` |
+| `HOMARR_TRANSPORT` | Transport mode (`stdio`, `sse`, `streamable-http`) | `stdio` |
+| `MCP_HOST` | Bind address for HTTP transports | `127.0.0.1` |
+| `MCP_PORT` | Listen port for HTTP transports | `8000` |
+| `MCP_BEARER_TOKEN` | Optional bearer token enforced on HTTP transports (no-op for stdio) | *unset* |
 
 ## Usage
 
@@ -79,6 +82,47 @@ Add to your Claude Code MCP settings:
 docker build -t homarr-mcp .
 docker run --env-file .env homarr-mcp --streamable-http
 ```
+
+### Deployment behind an HTTP gateway
+
+When fronting the wrapper with a gateway (LiteLLM, Kong, NGINX, etc.) over a
+shared network, set `MCP_BEARER_TOKEN` to a random secret. The wrapper will
+then reject any HTTP request that does not present a matching
+`Authorization: Bearer <token>` header.
+
+```bash
+export MCP_BEARER_TOKEN="$(openssl rand -hex 32)"
+export HOMARR_TRANSPORT=streamable-http
+export MCP_HOST=0.0.0.0   # bind to all interfaces inside the container
+uv run python src/server.py
+```
+
+Clients pass the token through the standard Bearer scheme. Example using a
+generic MCP client:
+
+```http
+POST /mcp HTTP/1.1
+Authorization: Bearer <your_token>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc": "2.0", "method": "initialize", ...}
+```
+
+Notes:
+- `MCP_BEARER_TOKEN` is **transport-aware** — it has no effect when
+  `HOMARR_TRANSPORT=stdio` (which has no HTTP layer). Existing stdio
+  consumers keep working untouched.
+- The `Bearer` scheme name is matched case-insensitively (RFC 7235 §2.1);
+  the token itself is compared byte-for-byte with `secrets.compare_digest`
+  for constant-time defence against timing oracles.
+- Both 401 paths (missing header, wrong token) emit the same body so a
+  client cannot distinguish them.
+- Pair the bearer with TLS at the gateway so the token is not exposed on
+  the wire.
+- To exempt health/probe paths from auth, instantiate the middleware with
+  `skip_paths=("/healthz",)`. There is no public env-var hook yet — add a
+  custom entry point if you need this in production.
 
 ## Tools Reference
 
