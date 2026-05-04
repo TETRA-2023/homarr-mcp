@@ -8,6 +8,7 @@ when ``MCP_BEARER_TOKEN`` is set and pass the bare app through otherwise.
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,7 @@ import pytest
 
 import src.server as server_mod
 from src.auth import BearerAuthMiddleware
+from src.logging_filters import StandaloneSseWriterRaceFilter
 
 
 def _fake_settings(*, has_token: bool, token: str = "s3cret") -> MagicMock:
@@ -100,3 +102,60 @@ class TestRunWarning:
             "MCP_BEARER_TOKEN not set" in rec.message and rec.levelname == "WARNING"
             for rec in caplog.records
         )
+
+
+@pytest.fixture
+def _clean_sdk_logger_filters():
+    """Strip our race filter from the upstream logger before + after each test
+    so order-of-execution doesn't leak attachment state across cases."""
+    sdk_logger = logging.getLogger("mcp.server.streamable_http")
+
+    def _purge() -> None:
+        for f in list(sdk_logger.filters):
+            if isinstance(f, StandaloneSseWriterRaceFilter):
+                sdk_logger.removeFilter(f)
+
+    _purge()
+    try:
+        yield sdk_logger
+    finally:
+        _purge()
+
+
+class TestRaceFilterInstallation:
+    def test_attaches_race_filter_on_http_transport(
+        self, _clean_sdk_logger_filters: logging.Logger
+    ) -> None:
+        bare_app = object()
+        with (
+            patch.object(server_mod.mcp, "streamable_http_app", return_value=bare_app),
+            patch.object(server_mod, "settings", _fake_settings(has_token=False)),
+            _patched_uvicorn(),
+        ):
+            server_mod._run("streamable-http")
+        assert any(
+            isinstance(f, StandaloneSseWriterRaceFilter) for f in _clean_sdk_logger_filters.filters
+        )
+
+    def test_does_not_attach_on_stdio(self, _clean_sdk_logger_filters: logging.Logger) -> None:
+        with _patched_uvicorn(), patch.object(server_mod.mcp, "run"):
+            server_mod._run("stdio")
+        assert not any(
+            isinstance(f, StandaloneSseWriterRaceFilter) for f in _clean_sdk_logger_filters.filters
+        )
+
+    def test_attachment_is_idempotent(self, _clean_sdk_logger_filters: logging.Logger) -> None:
+        bare_app = object()
+        with (
+            patch.object(server_mod.mcp, "streamable_http_app", return_value=bare_app),
+            patch.object(server_mod, "settings", _fake_settings(has_token=False)),
+            _patched_uvicorn(),
+        ):
+            server_mod._run("streamable-http")
+            server_mod._run("streamable-http")
+        race_filters = [
+            f
+            for f in _clean_sdk_logger_filters.filters
+            if isinstance(f, StandaloneSseWriterRaceFilter)
+        ]
+        assert len(race_filters) == 1
