@@ -470,7 +470,41 @@ def _resolve_transport(argv: list[str] | None = None, env: dict[str, str] | None
     return "stdio"
 
 
+def _run(transport: str) -> None:
+    """Dispatch to the right runner. Wraps HTTP transports with bearer auth
+    when ``MCP_BEARER_TOKEN`` is set; stdio is always passed through untouched.
+    """
+    if transport == "stdio":
+        # Stdio has no HTTP layer — bearer middleware is a no-op here. Existing
+        # stdio integrations remain unaffected even when MCP_BEARER_TOKEN is set.
+        mcp.run(transport="stdio")
+        return
+
+    import uvicorn
+
+    from src.auth import BearerAuthMiddleware
+
+    app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
+
+    if settings.has_bearer_token:
+        app = BearerAuthMiddleware(app, expected_token=settings.get_bearer_token_value())
+        logger.info("Bearer-token middleware enabled for %s transport", transport)
+    else:
+        logger.info(
+            "MCP_BEARER_TOKEN not set — %s transport accepts unauthenticated requests",
+            transport,
+        )
+
+    config = uvicorn.Config(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )
+    uvicorn.Server(config).run()
+
+
 if __name__ == "__main__":
     transport = _resolve_transport()
     logger.info(f"Starting Homarr MCP server with {transport} transport")
-    mcp.run(transport=transport)
+    _run(transport)

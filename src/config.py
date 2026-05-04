@@ -40,6 +40,16 @@ class HomarrSettings(BaseSettings):
         description="Homarr API key (format: <id>.<token>)",
     )
 
+    bearer_token: Optional[SecretStr] = Field(
+        default=None,
+        alias="MCP_BEARER_TOKEN",
+        description=(
+            "Optional bearer token enforced on HTTP transports. When set, "
+            "incoming streamable-http/sse requests must present "
+            "'Authorization: Bearer <token>'. No-op for stdio transport."
+        ),
+    )
+
     @property
     def has_api_key(self) -> bool:
         """Check if API key is configured."""
@@ -50,6 +60,17 @@ class HomarrSettings(BaseSettings):
         if self.api_key is None:
             raise ValueError("HOMARR_API_KEY is required but not set")
         return self.api_key.get_secret_value()
+
+    @property
+    def has_bearer_token(self) -> bool:
+        """Check if a bearer token is configured."""
+        return self.bearer_token is not None
+
+    def get_bearer_token_value(self) -> str:
+        """Safely get the bearer token value."""
+        if self.bearer_token is None:
+            raise ValueError("MCP_BEARER_TOKEN is not set")
+        return self.bearer_token.get_secret_value()
 
 
 def mask_credential(value: str, visible_chars: int = 2) -> str:
