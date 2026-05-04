@@ -485,9 +485,16 @@ def _run(transport: str) -> None:
         mcp.run(transport="stdio")
         return
 
+    import logging as _logging
+
     import uvicorn
 
     from src.auth import BearerAuthMiddleware
+    from src.logging_filters import StandaloneSseWriterRaceFilter
+
+    # Mute the upstream SDK's ClosedResourceError noise on session teardown.
+    # See StandaloneSseWriterRaceFilter for why this is benign and narrow.
+    _logging.getLogger("mcp.server.streamable_http").addFilter(StandaloneSseWriterRaceFilter())
 
     app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
 
