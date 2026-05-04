@@ -473,6 +473,11 @@ def _resolve_transport(argv: list[str] | None = None, env: dict[str, str] | None
 def _run(transport: str) -> None:
     """Dispatch to the right runner. Wraps HTTP transports with bearer auth
     when ``MCP_BEARER_TOKEN`` is set; stdio is always passed through untouched.
+
+    HTTP transports drive uvicorn directly (mirroring ``FastMCP.run_streamable_
+    http_async`` / ``run_sse_async``) — the intentional bypass is what lets us
+    attach :class:`BearerAuthMiddleware` around the full Starlette app. Keep
+    this in sync with FastMCP's runner shape if upstream adds startup hooks.
     """
     if transport == "stdio":
         # Stdio has no HTTP layer — bearer middleware is a no-op here. Existing
@@ -490,7 +495,7 @@ def _run(transport: str) -> None:
         app = BearerAuthMiddleware(app, expected_token=settings.get_bearer_token_value())
         logger.info("Bearer-token middleware enabled for %s transport", transport)
     else:
-        logger.info(
+        logger.warning(
             "MCP_BEARER_TOKEN not set — %s transport accepts unauthenticated requests",
             transport,
         )

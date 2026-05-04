@@ -101,3 +101,69 @@ class TestBearerAuthMiddleware:
         mw = BearerAuthMiddleware(ws_app, expected_token="s3cret")
         await mw({"type": "websocket", "headers": []}, _noop_receive, _Recorder())
         assert seen == ["websocket"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_header_value(self) -> None:
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret")
+        send = _Recorder()
+        await mw(_http_scope(b""), _noop_receive, send)
+        assert send.events[0]["status"] == 401
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_bearer_token(self) -> None:
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret")
+        send = _Recorder()
+        await mw(_http_scope(b"Bearer "), _noop_receive, send)
+        assert send.events[0]["status"] == 401
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("scheme", [b"bearer", b"BEARER", b"BeArEr"])
+    async def test_accepts_case_insensitive_scheme(self, scheme: bytes) -> None:
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret")
+        send = _Recorder()
+        await mw(_http_scope(scheme + b" s3cret"), _noop_receive, send)
+        assert send.events[0]["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_uniform_401_body_across_failure_modes(self) -> None:
+        """Both 401 paths must emit the same body so attackers can't tell
+        'missing header' from 'wrong token' from the response."""
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret")
+        no_header, wrong = _Recorder(), _Recorder()
+        await mw(_http_scope(authorization=None), _noop_receive, no_header)
+        await mw(_http_scope(b"Bearer wrong"), _noop_receive, wrong)
+        assert no_header.events[0]["status"] == wrong.events[0]["status"]
+        assert no_header.events[0]["headers"] == wrong.events[0]["headers"]
+        assert no_header.events[1]["body"] == wrong.events[1]["body"]
+
+    @pytest.mark.asyncio
+    async def test_skip_paths_bypass_auth(self) -> None:
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret", skip_paths=["/healthz"])
+        send = _Recorder()
+        scope = {"type": "http", "method": "GET", "path": "/healthz", "headers": []}
+        await mw(scope, _noop_receive, send)
+        assert send.events[0]["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_skip_paths_prefix_match(self) -> None:
+        """A skip_paths entry of '/healthz' should match '/healthz' and
+        '/healthz/sub' but not '/healthzfoo'."""
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret", skip_paths=["/healthz"])
+
+        async def run(path: str) -> int:
+            send = _Recorder()
+            scope = {"type": "http", "method": "GET", "path": path, "headers": []}
+            await mw(scope, _noop_receive, send)
+            return send.events[0]["status"]
+
+        assert await run("/healthz") == 200
+        assert await run("/healthz/sub") == 200
+        assert await run("/healthzfoo") == 401
+        assert await run("/mcp") == 401
+
+    @pytest.mark.asyncio
+    async def test_skip_paths_does_not_affect_unrelated(self) -> None:
+        mw = BearerAuthMiddleware(_ok_app, expected_token="s3cret", skip_paths=["/healthz"])
+        send = _Recorder()
+        await mw(_http_scope(authorization=None), _noop_receive, send)
+        assert send.events[0]["status"] == 401

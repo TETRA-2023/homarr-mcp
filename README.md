@@ -113,9 +113,16 @@ Notes:
 - `MCP_BEARER_TOKEN` is **transport-aware** — it has no effect when
   `HOMARR_TRANSPORT=stdio` (which has no HTTP layer). Existing stdio
   consumers keep working untouched.
-- The middleware uses `secrets.compare_digest` for constant-time comparison.
-- Pair the bearer with TLS at the gateway so the token is not exposed on the
-  wire.
+- The `Bearer` scheme name is matched case-insensitively (RFC 7235 §2.1);
+  the token itself is compared byte-for-byte with `secrets.compare_digest`
+  for constant-time defence against timing oracles.
+- Both 401 paths (missing header, wrong token) emit the same body so a
+  client cannot distinguish them.
+- Pair the bearer with TLS at the gateway so the token is not exposed on
+  the wire.
+- To exempt health/probe paths from auth, instantiate the middleware with
+  `skip_paths=("/healthz",)`. There is no public env-var hook yet — add a
+  custom entry point if you need this in production.
 
 ## Tools Reference
 
